@@ -19,86 +19,59 @@
 <section id="monthly" class="view panel" hidden><h2>Monthly forecast</h2><p>Forecast uses your purchase history. Fixed items use their historical monthly average; semi-variable items use a recent weighted average; variable items are shown as optional.</p><div class="row"><button id="refreshForecast">Refresh</button><button id="printPdf" class="secondary">Print / Save PDF</button></div><div id="forecast"></div></section>
 <section id="history" class="view panel" hidden><h2>Purchase history</h2><div id="historyList"></div></section>
 <section id="data" class="view panel" hidden><h2>Data & backup</h2><div class="row"><button id="exportJson">Export JSON</button><label class="file">Import JSON<input id="importJson" type="file" accept="application/json"></label></div><button id="clearData" class="danger">Clear local data</button><pre id="dataPreview"></pre></section>
-</section></main><script>
-// Index-level unlock fallback: keeps the door working even if app.js has a loading problem.
-(function(){
- const btn=document.getElementById('unlock'), pin=document.getElementById('pin'), lock=document.getElementById('lock'), app=document.getElementById('app'), msg=document.getElementById('unlockMsg');
- function unlock(){if(pin.value.trim()==='1234'){lock.hidden=true;app.hidden=false;msg.textContent='';}else{msg.textContent='That code did not match. Try 1234.';pin.select();}}
- btn.addEventListener('click',unlock); pin.addEventListener('keydown',e=>{if(e.key==='Enter')unlock()});
-})();
-</script><script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
-<script src="js/db.js"></script><script src="js/app.js"></script>
+</section></main><script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
-// Cross-browser scanner override: native BarcodeDetector first, ZXing fallback.
-(function(){
- const $=id=>document.getElementById(id); let zxingReader=null, nativeStream=null, nativeTimer=null, busy=false;
- function status(t){$('scanStatus').textContent=t}
- function accept(code){ if(!code||busy)return; busy=true; $('barcode').value=code; status('Barcode detected: '+code+'. Looking up product…'); $('lookupBarcode')?.click(); stop(false); setTimeout(()=>busy=false,1000); }
- async function nativeScan(){
-  const formats=await BarcodeDetector.getSupportedFormats();
-  const wanted=['ean_13','ean_8','upc_a','upc_e','code_128'].filter(x=>formats.includes(x));
-  const detector=new BarcodeDetector(wanted.length?{formats:wanted}:undefined);
-  nativeStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
-  $('video').srcObject=nativeStream; await $('video').play(); status('Camera active — hold a barcode inside the frame.');
-  nativeTimer=setInterval(async()=>{try{const r=await detector.detect($('video')); if(r[0]?.rawValue)accept(r[0].rawValue)}catch(e){}},250);
- }
- async function zxingScan(){
-  if(!window.ZXing) throw new Error('Scanner library could not load. Check your internet connection and reload.');
-  zxingReader=new ZXing.BrowserMultiFormatReader(); status('Requesting rear camera…');
-  await zxingReader.decodeFromConstraints({video:{facingMode:{ideal:'environment'}}},'video',(result,err)=>{if(result)accept(result.getText())});
-  status('Camera active — hold a UPC/EAN barcode inside the frame.');
- }
- async function start(){
-  stop(false); busy=false;
-  if(!window.isSecureContext && location.hostname!=='localhost' && location.hostname!=='127.0.0.1'){status('Camera requires HTTPS. Open this page through GitHub Pages (https://), not as a local file.');return}
-  if(!navigator.mediaDevices?.getUserMedia){status('This browser cannot access the camera. You can still type the barcode manually.');return}
-  try{status('Loading scanner…'); if('BarcodeDetector' in window) await nativeScan(); else await zxingScan()}
-  catch(e){console.error(e); status('Scanner error: '+(e.name==='NotAllowedError'?'Camera permission was denied. Allow camera access in your browser settings.':e.message));}
- }
- function stop(show=true){
-  if(nativeTimer){clearInterval(nativeTimer);nativeTimer=null} if(nativeStream){nativeStream.getTracks().forEach(t=>t.stop());nativeStream=null}
-  try{zxingReader?.reset()}catch(e){} zxingReader=null; if($('video'))$('video').srcObject=null; if(show)status('Scanner stopped.');
- }
- // app.js assigns onclick handlers synchronously; replace them after it loads.
- setTimeout(()=>{ $('startCamera').onclick=start; $('stopCamera').onclick=()=>stop(true); status('Scanner ready — tap Start scanner. UPC/EAN, Code 128 and other common formats are supported.'); },0);
- window.addEventListener('pagehide',()=>stop(false));
-})();
-</script><script>
-// Save-button reliability patch. Keeps saving local even if another handler fails.
-(function(){
- const el=id=>document.getElementById(id);
- function flash(text,ok=true){
-   const box=el('saveMessage') || (()=>{const x=document.createElement('div');x.id='saveMessage';x.className='notice';el('savePurchase').after(x);return x})();
-   box.textContent=text; box.style.borderColor=ok?'rgba(102,224,180,.55)':'rgba(255,113,133,.65)';
- }
- function clearFields(){
-   ['barcode','name','brand','category','price'].forEach(id=>{if(el(id))el(id).value=''});
-   el('qty').value='1'; el('classType').value='semi'; el('lookupStatus').textContent=''; el('variableNotice').hidden=true;
- }
- function reliableSave(ev){
-   ev.preventDefault(); ev.stopImmediatePropagation();
-   const code=el('barcode').value.trim(), name=el('name').value.trim();
-   if(!code){flash('Scan or enter a barcode before saving.',false);el('barcode').focus();return}
-   if(!name){flash('Enter a product name before saving.',false);el('name').focus();return}
-   const qty=Math.max(1,parseInt(el('qty').value,10)||1);
-   const price=Math.max(0,parseFloat(el('price').value)||0);
-   const type=el('classType').value||'semi';
-   try{
-     const d=Store.load();
-     d.products[code]={barcode:code,name,brand:el('brand').value.trim(),category:el('category').value.trim(),type,lastPrice:price,updated:new Date().toISOString()};
-     d.transactions.push({id:(globalThis.crypto&&typeof crypto.randomUUID==='function')?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2),barcode:code,date:new Date().toISOString(),quantity:qty,price};
-     Store.save(d);
-     // Keep app.js's in-memory copy synchronized when available.
-     try{data=d}catch(_){}
-     flash('✓ Saved '+name+' × '+qty+'. Ready for the next item.');
-     el('scanStatus').textContent='Saved '+name+' × '+qty+'. Ready for the next item.';
-     clearFields();
-     try{renderAll()}catch(_){}
-   }catch(err){console.error(err);flash('Could not save: '+err.message,false)}
- }
- const btn=el('savePurchase');
- btn.type='button';
- // Capture phase makes this patch authoritative and prevents duplicate transactions.
- btn.addEventListener('click',reliableSave,true);
+(()=>{
+'use strict';
+const ACCESS_CODE='1234', KEY='homeInventoryV2';
+const $=id=>document.getElementById(id);
+const blank=()=>({version:2,products:{},transactions:[]});
+const load=()=>{try{const d=JSON.parse(localStorage.getItem(KEY)||'null');return d&&d.products&&Array.isArray(d.transactions)?d:blank()}catch{return blank()}};
+const save=d=>localStorage.setItem(KEY,JSON.stringify(d));
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let data=load(), zxingReader=null, nativeStream=null, nativeTimer=null, busy=false;
+
+function showView(id){document.querySelectorAll('.view').forEach(v=>v.hidden=v.id!==id); if(id!=='scan') stopScanner(false); renderAll();}
+function showApp(){ $('lock').hidden=true; $('app').hidden=false; renderAll(); }
+function unlock(){if($('pin').value.trim()===ACCESS_CODE){showApp();$('unlockMsg').textContent=''}else{$('unlockMsg').textContent='That code did not match. Try 1234.';$('pin').select()}}
+$('unlock').addEventListener('click',unlock); $('pin').addEventListener('keydown',e=>{if(e.key==='Enter')unlock()});
+$('lockBtn').addEventListener('click',()=>{stopScanner(false);$('app').hidden=true;$('lock').hidden=false;$('pin').value='';$('pin').focus()});
+document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
+
+function variableMsg(code){return /^2\d{11}$/.test(code)?'This may be a retailer-generated variable-measure barcode. The full code will be saved.':''}
+function fillKnown(code){const p=data.products[code];if(!p)return false;$('name').value=p.name||'';$('brand').value=p.brand||'';$('category').value=p.category||'';$('price').value=p.lastPrice??'';$('classType').value=p.type||'semi';return true}
+function setBarcode(code,autoLookup=true){code=String(code||'').trim();if(!code)return;$('barcode').value=code;const m=variableMsg(code);$('variableNotice').hidden=!m;$('variableNotice').textContent=m;if(fillKnown(code)){$('lookupStatus').textContent='Recognized from your local database.'}else if(autoLookup){$('lookupStatus').textContent='New barcode. Looking up product…';lookupProduct(code)}}
+$('barcode').addEventListener('change',()=>setBarcode($('barcode').value));
+
+async function lookupProduct(code=$('barcode').value.trim()){
+ if(!code){$('lookupStatus').textContent='Enter or scan a barcode first.';return}
+ if(fillKnown(code)){$('lookupStatus').textContent='Recognized from your local database.';return}
+ $('lookupStatus').textContent='Looking up…';
+ try{const r=await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=code,product_name,brands,categories`);if(!r.ok)throw Error('lookup failed');const j=await r.json();if(j.status===1&&j.product){const p=j.product;$('name').value=p.product_name||'';$('brand').value=p.brands||'';$('category').value=(p.categories||'').split(',')[0].trim();$('lookupStatus').textContent=p.product_name?'Product found. Confirm details, price and class.':'Barcode found, but product name is missing.'}else $('lookupStatus').textContent='No public match found. Enter it once and it will be remembered.'}catch{$('lookupStatus').textContent='Online lookup unavailable. Enter the product manually.'}
+}
+$('lookupBarcode').addEventListener('click',()=>lookupProduct());
+
+function message(text,ok=true){let x=$('saveMessage');if(!x){x=document.createElement('div');x.id='saveMessage';x.className='notice';$('savePurchase').after(x)}x.textContent=text;x.style.borderColor=ok?'rgba(102,224,180,.55)':'rgba(255,113,133,.65)'}
+function clearForm(){['barcode','name','brand','category','price'].forEach(id=>$(id).value='');$('qty').value='1';$('classType').value='semi';$('lookupStatus').textContent='';$('variableNotice').hidden=true}
+function savePurchase(){const code=$('barcode').value.trim(),name=$('name').value.trim();if(!code){message('Scan or enter a barcode before saving.',false);$('barcode').focus();return}if(!name){message('Enter a product name before saving.',false);$('name').focus();return}const qty=Math.max(1,parseInt($('qty').value,10)||1),price=Math.max(0,parseFloat($('price').value)||0),type=$('classType').value||'semi';data.products[code]={barcode:code,name,brand:$('brand').value.trim(),category:$('category').value.trim(),type,lastPrice:price,updated:new Date().toISOString()};data.transactions.push({id:(crypto.randomUUID?.()||Date.now()+'-'+Math.random()),barcode:code,date:new Date().toISOString(),quantity:qty,price});save(data);message(`✓ Saved ${name} × ${qty}.`);$('scanStatus').textContent=`Saved ${name} × ${qty}. Ready for the next item.`;clearForm();renderAll()}
+$('savePurchase').type='button';$('savePurchase').addEventListener('click',savePurchase);
+
+function scanStatus(t){$('scanStatus').textContent=t}
+function accept(code){if(!code||busy)return;busy=true;setBarcode(code,true);scanStatus('Barcode detected: '+code+'. Looking up product…');stopScanner(false);setTimeout(()=>busy=false,800)}
+async function startScanner(){stopScanner(false);busy=false;if(!window.isSecureContext&&!['localhost','127.0.0.1'].includes(location.hostname)){scanStatus('Camera requires HTTPS. Open the GitHub Pages https:// address.');return}if(!navigator.mediaDevices?.getUserMedia){scanStatus('This browser cannot access the camera.');return}try{scanStatus('Loading scanner…');if('BarcodeDetector' in window){const formats=await BarcodeDetector.getSupportedFormats();const wanted=['ean_13','ean_8','upc_a','upc_e','code_128'].filter(x=>formats.includes(x));const detector=new BarcodeDetector(wanted.length?{formats:wanted}:undefined);nativeStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});$('video').srcObject=nativeStream;await $('video').play();scanStatus('Camera active — hold a barcode inside the frame.');nativeTimer=setInterval(async()=>{try{const r=await detector.detect($('video'));if(r[0]?.rawValue)accept(r[0].rawValue)}catch{}},250)}else{if(!window.ZXing)throw Error('Scanner library could not load. Reload while online.');zxingReader=new ZXing.BrowserMultiFormatReader();await zxingReader.decodeFromConstraints({video:{facingMode:{ideal:'environment'}}},'video',(result)=>{if(result)accept(result.getText())});scanStatus('Camera active — hold a barcode inside the frame.')}}catch(e){console.error(e);scanStatus('Scanner error: '+(e.name==='NotAllowedError'?'Camera permission was denied.':e.message))}}
+function stopScanner(show=true){if(nativeTimer){clearInterval(nativeTimer);nativeTimer=null}if(nativeStream){nativeStream.getTracks().forEach(t=>t.stop());nativeStream=null}try{zxingReader?.reset()}catch{}zxingReader=null;$('video').srcObject=null;if(show)scanStatus('Scanner stopped.')}
+$('startCamera').addEventListener('click',startScanner);$('stopCamera').addEventListener('click',()=>stopScanner(true));window.addEventListener('pagehide',()=>stopScanner(false));
+
+function renderProducts(){const a=Object.values(data.products).sort((a,b)=>a.name.localeCompare(b.name));$('productList').innerHTML=a.map(p=>`<div class="card ${p.type}"><b>${esc(p.name)}</b>${p.brand?` <small>— ${esc(p.brand)}</small>`:''}<br><span>${esc(p.barcode)} · ${esc(p.category||'Uncategorized')} · ${esc(p.type)} · last $${Number(p.lastPrice||0).toFixed(2)}</span></div>`).join('')||'<p>No products yet.</p>'}
+const monthKey=d=>d.slice(0,7);
+function forecastRows(){const months=[...new Set(data.transactions.map(t=>monthKey(t.date)))].sort();return Object.values(data.products).map(p=>{const by={};data.transactions.filter(t=>t.barcode===p.barcode).forEach(t=>by[monthKey(t.date)]=(by[monthKey(t.date)]||0)+Number(t.quantity||0));const vals=months.map(m=>by[m]||0);let monthly=0;if(p.type==='fixed')monthly=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0;else if(p.type==='semi'){const r=vals.slice(-3),w=r.map((_,i)=>i+1),den=w.reduce((a,b)=>a+b,0)||1;monthly=r.reduce((s,v,i)=>s+v*w[i],0)/den}else{const n=vals.filter(v=>v>0);monthly=n.length?n.reduce((a,b)=>a+b,0)/n.length:0}return {...p,monthly:Math.ceil(monthly)}}).sort((a,b)=>['fixed','semi','variable'].indexOf(a.type)-['fixed','semi','variable'].indexOf(b.type)||a.name.localeCompare(b.name))}
+function renderForecast(){const rows=forecastRows();let total=0;const html=rows.map(p=>{const est=p.monthly*Number(p.lastPrice||0);if(p.type!=='variable')total+=est;return `<div class="card ${p.type}"><b>${esc(p.name)}</b><br><span>${p.type==='variable'?'Optional typical buy':'Suggested'}: ${p.monthly}/month · est. $${est.toFixed(2)} · ${esc(p.type)}</span></div>`}).join('');$('forecast').innerHTML=(html||'<p>Scan purchases to build a forecast.</p>')+(rows.length?`<div class="total"><b>Estimated fixed + semi monthly spend:</b> $${total.toFixed(2)}</div>`:'')}
+function renderHistory(){const rows=[...data.transactions].sort((a,b)=>b.date.localeCompare(a.date));$('historyList').innerHTML=rows.slice(0,200).map(t=>{const p=data.products[t.barcode]||{name:t.barcode};return `<div class="card"><b>${esc(p.name)}</b><br><span>${new Date(t.date).toLocaleString()} · qty ${t.quantity} · $${Number(t.price||0).toFixed(2)}</span></div>`}).join('')||'<p>No purchases yet.</p>'}
+function renderAll(){renderProducts();renderForecast();renderHistory();$('dataPreview').textContent=JSON.stringify(data,null,2)}
+$('refreshForecast').addEventListener('click',renderForecast);$('printPdf').addEventListener('click',()=>window.print());
+$('exportJson').addEventListener('click',()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=`home-inventory-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)});
+$('importJson').addEventListener('change',async e=>{try{const f=e.target.files?.[0];if(!f)return;const d=JSON.parse(await f.text());if(!d.products||!Array.isArray(d.transactions))throw Error();data={version:2,products:d.products,transactions:d.transactions};save(data);renderAll();alert('Import complete.')}catch{alert('Invalid inventory JSON file.')}});
+$('clearData').addEventListener('click',()=>{if(confirm('Delete all local inventory data on this device?')){localStorage.removeItem(KEY);data=load();renderAll()}});
+scanStatus('Scanner ready — tap Start scanner.');
 })();
 </script></body></html>
