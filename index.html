@@ -63,4 +63,42 @@
  setTimeout(()=>{ $('startCamera').onclick=start; $('stopCamera').onclick=()=>stop(true); status('Scanner ready — tap Start scanner. UPC/EAN, Code 128 and other common formats are supported.'); },0);
  window.addEventListener('pagehide',()=>stop(false));
 })();
+</script><script>
+// Save-button reliability patch. Keeps saving local even if another handler fails.
+(function(){
+ const el=id=>document.getElementById(id);
+ function flash(text,ok=true){
+   const box=el('saveMessage') || (()=>{const x=document.createElement('div');x.id='saveMessage';x.className='notice';el('savePurchase').after(x);return x})();
+   box.textContent=text; box.style.borderColor=ok?'rgba(102,224,180,.55)':'rgba(255,113,133,.65)';
+ }
+ function clearFields(){
+   ['barcode','name','brand','category','price'].forEach(id=>{if(el(id))el(id).value=''});
+   el('qty').value='1'; el('classType').value='semi'; el('lookupStatus').textContent=''; el('variableNotice').hidden=true;
+ }
+ function reliableSave(ev){
+   ev.preventDefault(); ev.stopImmediatePropagation();
+   const code=el('barcode').value.trim(), name=el('name').value.trim();
+   if(!code){flash('Scan or enter a barcode before saving.',false);el('barcode').focus();return}
+   if(!name){flash('Enter a product name before saving.',false);el('name').focus();return}
+   const qty=Math.max(1,parseInt(el('qty').value,10)||1);
+   const price=Math.max(0,parseFloat(el('price').value)||0);
+   const type=el('classType').value||'semi';
+   try{
+     const d=Store.load();
+     d.products[code]={barcode:code,name,brand:el('brand').value.trim(),category:el('category').value.trim(),type,lastPrice:price,updated:new Date().toISOString()};
+     d.transactions.push({id:(globalThis.crypto&&typeof crypto.randomUUID==='function')?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2),barcode:code,date:new Date().toISOString(),quantity:qty,price};
+     Store.save(d);
+     // Keep app.js's in-memory copy synchronized when available.
+     try{data=d}catch(_){}
+     flash('✓ Saved '+name+' × '+qty+'. Ready for the next item.');
+     el('scanStatus').textContent='Saved '+name+' × '+qty+'. Ready for the next item.';
+     clearFields();
+     try{renderAll()}catch(_){}
+   }catch(err){console.error(err);flash('Could not save: '+err.message,false)}
+ }
+ const btn=el('savePurchase');
+ btn.type='button';
+ // Capture phase makes this patch authoritative and prevents duplicate transactions.
+ btn.addEventListener('click',reliableSave,true);
+})();
 </script></body></html>
