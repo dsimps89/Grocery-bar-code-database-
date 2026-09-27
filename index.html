@@ -26,4 +26,41 @@
  function unlock(){if(pin.value.trim()==='1234'){lock.hidden=true;app.hidden=false;msg.textContent='';}else{msg.textContent='That code did not match. Try 1234.';pin.select();}}
  btn.addEventListener('click',unlock); pin.addEventListener('keydown',e=>{if(e.key==='Enter')unlock()});
 })();
-</script><script src="js/db.js"></script><script src="js/app.js"></script></body></html>
+</script><script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="js/db.js"></script><script src="js/app.js"></script>
+<script>
+// Cross-browser scanner override: native BarcodeDetector first, ZXing fallback.
+(function(){
+ const $=id=>document.getElementById(id); let zxingReader=null, nativeStream=null, nativeTimer=null, busy=false;
+ function status(t){$('scanStatus').textContent=t}
+ function accept(code){ if(!code||busy)return; busy=true; $('barcode').value=code; status('Barcode detected: '+code+'. Looking up product…'); $('lookupBarcode')?.click(); stop(false); setTimeout(()=>busy=false,1000); }
+ async function nativeScan(){
+  const formats=await BarcodeDetector.getSupportedFormats();
+  const wanted=['ean_13','ean_8','upc_a','upc_e','code_128'].filter(x=>formats.includes(x));
+  const detector=new BarcodeDetector(wanted.length?{formats:wanted}:undefined);
+  nativeStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+  $('video').srcObject=nativeStream; await $('video').play(); status('Camera active — hold a barcode inside the frame.');
+  nativeTimer=setInterval(async()=>{try{const r=await detector.detect($('video')); if(r[0]?.rawValue)accept(r[0].rawValue)}catch(e){}},250);
+ }
+ async function zxingScan(){
+  if(!window.ZXing) throw new Error('Scanner library could not load. Check your internet connection and reload.');
+  zxingReader=new ZXing.BrowserMultiFormatReader(); status('Requesting rear camera…');
+  await zxingReader.decodeFromConstraints({video:{facingMode:{ideal:'environment'}}},'video',(result,err)=>{if(result)accept(result.getText())});
+  status('Camera active — hold a UPC/EAN barcode inside the frame.');
+ }
+ async function start(){
+  stop(false); busy=false;
+  if(!window.isSecureContext && location.hostname!=='localhost' && location.hostname!=='127.0.0.1'){status('Camera requires HTTPS. Open this page through GitHub Pages (https://), not as a local file.');return}
+  if(!navigator.mediaDevices?.getUserMedia){status('This browser cannot access the camera. You can still type the barcode manually.');return}
+  try{status('Loading scanner…'); if('BarcodeDetector' in window) await nativeScan(); else await zxingScan()}
+  catch(e){console.error(e); status('Scanner error: '+(e.name==='NotAllowedError'?'Camera permission was denied. Allow camera access in your browser settings.':e.message));}
+ }
+ function stop(show=true){
+  if(nativeTimer){clearInterval(nativeTimer);nativeTimer=null} if(nativeStream){nativeStream.getTracks().forEach(t=>t.stop());nativeStream=null}
+  try{zxingReader?.reset()}catch(e){} zxingReader=null; if($('video'))$('video').srcObject=null; if(show)status('Scanner stopped.');
+ }
+ // app.js assigns onclick handlers synchronously; replace them after it loads.
+ setTimeout(()=>{ $('startCamera').onclick=start; $('stopCamera').onclick=()=>stop(true); status('Scanner ready — tap Start scanner. UPC/EAN, Code 128 and other common formats are supported.'); },0);
+ window.addEventListener('pagehide',()=>stop(false));
+})();
+</script></body></html>
