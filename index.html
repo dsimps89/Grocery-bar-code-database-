@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#202124"><title>Home Inventory V2</title><link rel="stylesheet" href="css/styles.css"></head>
+<body><main>
+<section id="lock" class="panel lock"><h1>Home Inventory V2</h1><p>Enter access code</p><input id="pin" type="password" inputmode="numeric" placeholder="1234" aria-label="Access code"><button id="unlock">Unlock</button><p class="hint">Prototype code: 1234. This is a convenience lock, not secure authentication.</p></section>
+<section id="app" hidden><header><div><h1>Home Inventory</h1><small>Barcode + purchase analytics V2</small></div><button id="lockBtn">Lock</button></header>
+<nav><button data-view="scan">Scan</button><button data-view="products">Products</button><button data-view="monthly">Monthly</button><button data-view="history">History</button><button data-view="data">Data</button></nav>
+<section id="scan" class="view panel"><h2>Scan purchase</h2><div class="scanner"><video id="video" playsinline muted></video><div class="scanline"></div></div><div class="row"><button id="startCamera">Start scanner</button><button id="stopCamera" class="secondary">Stop</button></div><p id="scanStatus" class="status">Ready. Supports common UPC/EAN formats when your browser provides BarcodeDetector.</p>
+<label>Barcode<input id="barcode" inputmode="numeric" autocomplete="off" placeholder="Scan or type UPC/EAN"></label><div class="row"><button id="lookupBarcode" class="secondary">Look up product</button><span id="lookupStatus" class="hint"></span></div>
+<div id="variableNotice" class="notice" hidden></div>
+<label>Product name<input id="name" placeholder="e.g. Ketchup 1 L"></label><div class="grid"><label>Brand<input id="brand"></label><label>Category<input id="category" placeholder="Pantry"></label></div>
+<div class="grid"><label>Price ($)<input id="price" type="number" min="0" step=".01"></label><label>Quantity<input id="qty" type="number" min="1" value="1"></label></div>
+<label>Class<select id="classType"><option value="fixed">Fixed</option><option value="semi" selected>Semi-variable</option><option value="variable">Variable</option></select></label><button id="savePurchase" class="primary">Save purchase</button></section>
+<section id="products" class="view panel" hidden><h2>Products</h2><p class="hint">Known barcodes are filled automatically on future scans.</p><div id="productList"></div></section>
+<section id="monthly" class="view panel" hidden><h2>Monthly forecast</h2><p>Forecast uses your purchase history. Fixed items use their historical monthly average; semi-variable items use a recent weighted average; variable items are shown as optional.</p><div class="row"><button id="refreshForecast">Refresh</button><button id="printPdf" class="secondary">Print / Save PDF</button></div><div id="forecast"></div></section>
+<section id="history" class="view panel" hidden><h2>Purchase history</h2><div id="historyList"></div></section>
+<section id="data" class="view panel" hidden><h2>Data & backup</h2><div class="row"><button id="exportJson">Export JSON</button><label class="file">Import JSON<input id="importJson" type="file" accept="application/json"></label></div><button id="clearData" class="danger">Clear local data</button><pre id="dataPreview"></pre></section>
+</section></main><script src="js/db.js"></script><script src="js/app.js"></script></body></html>
